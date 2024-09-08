@@ -1,19 +1,29 @@
 package me.realized.duels.util.function;
 
-import lombok.Getter;
-import lombok.Setter;
-
 public class Pair<K, V> {
 
-    @Getter
-    @Setter
-    private K key;
-    @Getter
-    @Setter
-    private V value;
+	private K key;
+	private V value;
 
-    public Pair(final K key, final V value) {
-        this.key = key;
-        this.value = value;
-    }
+	public Pair(final K key, final V value) {
+		this.key = key;
+		this.value = value;
+	}
+
+	public K getKey() {
+		return key;
+	}
+
+	public void setKey(K key) {
+		this.key = key;
+	}
+
+	public V getValue() {
+		return value;
+	}
+
+	public void setValue(V value) {
+		this.value = value;
+	}
+
 }

@@ -1,51 +1,65 @@
 package me.realized.duels.request;
 
 import java.util.UUID;
-import lombok.Getter;
+
+import org.bukkit.entity.Player;
+import org.jetbrains.annotations.Nullable;
+
 import me.realized.duels.api.arena.Arena;
 import me.realized.duels.api.kit.Kit;
 import me.realized.duels.api.request.Request;
 import me.realized.duels.setting.Settings;
-import org.bukkit.entity.Player;
-import org.jetbrains.annotations.Nullable;
 
 public class RequestImpl implements Request {
 
-    @Getter
-    private final UUID sender;
-    @Getter
-    private final UUID target;
-    @Getter
-    private final Settings settings;
-    @Getter
-    private final long creation;
+	private final UUID sender;
+	private final UUID target;
+	private final Settings settings;
+	private final long creation;
 
-    RequestImpl(final Player sender, final Player target, final Settings setting) {
-        this.sender = sender.getUniqueId();
-        this.target = target.getUniqueId();
-        this.settings = setting.lightCopy();
-        this.creation = System.currentTimeMillis();
-    }
+	RequestImpl(final Player sender, final Player target, final Settings setting) {
+		this.sender = sender.getUniqueId();
+		this.target = target.getUniqueId();
+		this.settings = setting.lightCopy();
+		this.creation = System.currentTimeMillis();
+	}
 
-    @Nullable
-    @Override
-    public Kit getKit() {
-        return settings.getKit();
-    }
+	public UUID getSender() {
+		return sender;
+	}
 
-    @Nullable
-    @Override
-    public Arena getArena() {
-        return settings.getArena();
-    }
+	public UUID getTarget() {
+		return target;
+	}
 
-    @Override
-    public boolean canBetItems() {
-        return settings.isItemBetting();
-    }
+	public Settings getSettings() {
+		return settings;
+	}
 
-    @Override
-    public int getBet() {
-        return settings.getBet();
-    }
+	public long getCreation() {
+		return creation;
+	}
+
+	@Nullable
+	@Override
+	public Kit getKit() {
+		return settings.getKit();
+	}
+
+	@Nullable
+	@Override
+	public Arena getArena() {
+		return settings.getArena();
+	}
+
+	@Override
+	public boolean canBetItems() {
+		return settings.isItemBetting();
+	}
+
+	@Override
+	public int getBet() {
+		return settings.getBet();
+	}
+
 }

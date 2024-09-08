@@ -1,6 +1,5 @@
 package me.realized.duels;
 
-import com.google.common.collect.Lists;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -9,7 +8,17 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.logging.Level;
 import java.util.stream.Collectors;
-import lombok.Getter;
+
+import org.bukkit.Bukkit;
+import org.bukkit.command.CommandSender;
+import org.bukkit.event.HandlerList;
+import org.bukkit.event.Listener;
+import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitTask;
+import org.jetbrains.annotations.NotNull;
+
+import com.google.common.collect.Lists;
+
 import me.realized.duels.api.Duels;
 import me.realized.duels.api.command.SubCommand;
 import me.realized.duels.arena.ArenaManagerImpl;
@@ -43,408 +52,430 @@ import me.realized.duels.queue.QueueManager;
 import me.realized.duels.queue.sign.QueueSignManagerImpl;
 import me.realized.duels.request.RequestManager;
 import me.realized.duels.setting.SettingsManager;
-import me.realized.duels.shaded.bstats.Metrics;
 import me.realized.duels.spectate.SpectateManagerImpl;
 import me.realized.duels.teleport.Teleport;
 import me.realized.duels.util.Loadable;
 import me.realized.duels.util.Log;
 import me.realized.duels.util.Log.LogSource;
 import me.realized.duels.util.Reloadable;
-import me.realized.duels.util.UpdateChecker;
 import me.realized.duels.util.command.AbstractCommand;
 import me.realized.duels.util.gui.GuiListener;
 import me.realized.duels.util.json.JsonUtil;
-import org.bukkit.Bukkit;
-import org.bukkit.command.CommandSender;
-import org.bukkit.event.HandlerList;
-import org.bukkit.event.Listener;
-import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.scheduler.BukkitTask;
-import org.jetbrains.annotations.NotNull;
 
 public class DuelsPlugin extends JavaPlugin implements Duels, LogSource {
 
-    private static final int BSTATS_ID = 2696;
-    private static final int RESOURCE_ID = 20171;
-    private static final String SPIGOT_INSTALLATION_URL = "https://www.spigotmc.org/wiki/spigot-installation/";
+	public static DuelsPlugin instance;
 
-    @Getter
-    private static DuelsPlugin instance;
+	private final List<Loadable> loadables = new ArrayList<>();
+	private int lastLoad;
 
-    private final List<Loadable> loadables = new ArrayList<>();
-    private int lastLoad;
+	private LogManager logManager;
+	private Config configuration;
+	private Lang lang;
+	private UserManagerImpl userManager;
+	private GuiListener<DuelsPlugin> guiListener;
+	private KitManagerImpl kitManager;
+	private ArenaManagerImpl arenaManager;
+	private SettingsManager settingManager;
+	private PlayerInfoManager playerManager;
+	private SpectateManagerImpl spectateManager;
+	private BettingManager bettingManager;
+	private InventoryManager inventoryManager;
+	private DuelManager duelManager;
+	private QueueManager queueManager;
+	private QueueSignManagerImpl queueSignManager;
+	private RequestManager requestManager;
+	private HookManager hookManager;
+	private Teleport teleport;
+	private ExtensionManager extensionManager;
 
-    @Getter
-    private LogManager logManager;
-    @Getter
-    private Config configuration;
-    @Getter
-    private Lang lang;
-    @Getter
-    private UserManagerImpl userManager;
-    @Getter
-    private GuiListener<DuelsPlugin> guiListener;
-    @Getter
-    private KitManagerImpl kitManager;
-    @Getter
-    private ArenaManagerImpl arenaManager;
-    @Getter
-    private SettingsManager settingManager;
-    @Getter
-    private PlayerInfoManager playerManager;
-    @Getter
-    private SpectateManagerImpl spectateManager;
-    @Getter
-    private BettingManager bettingManager;
-    @Getter
-    private InventoryManager inventoryManager;
-    @Getter
-    private DuelManager duelManager;
-    @Getter
-    private QueueManager queueManager;
-    @Getter
-    private QueueSignManagerImpl queueSignManager;
-    @Getter
-    private RequestManager requestManager;
-    @Getter
-    private HookManager hookManager;
-    @Getter
-    private Teleport teleport;
-    @Getter
-    private ExtensionManager extensionManager;
+	private final Map<String, AbstractCommand<DuelsPlugin>> commands = new HashMap<>();
+	private final List<Listener> registeredListeners = new ArrayList<>();
 
-    private final Map<String, AbstractCommand<DuelsPlugin>> commands = new HashMap<>();
-    private final List<Listener> registeredListeners = new ArrayList<>();
+	@Override
+	public void onEnable() {
+		instance = this;
+		Log.addSource(this);
+		JsonUtil.registerDeserializer(ItemData.class, ItemDataDeserializer.class);
 
-    @Getter
-    private volatile boolean updateAvailable;
-    @Getter
-    private volatile String newVersion;
+		try {
+			logManager = new LogManager(this);
+		} catch (IOException error) {
+			Log.error("Could not load LogManager. Please contact the developer.");
 
-    @Override
-    public void onEnable() {
-        instance = this;
-        Log.addSource(this);
-        JsonUtil.registerDeserializer(ItemData.class, ItemDataDeserializer.class);
+			// Manually print the stacktrace since Log#error only prints errors to non-plugin log sources.
+			error.printStackTrace();
+			this.getServer().getPluginManager().disablePlugin(this);
+			return;
+		}
 
-        try {
-            logManager = new LogManager(this);
-        } catch (IOException ex) {
-            Log.error("Could not load LogManager. Please contact the developer.");
+		Log.addSource(logManager);
+		logManager.debug("onEnable start -> " + System.currentTimeMillis() + "\n");
 
-            // Manually print the stacktrace since Log#error only prints errors to non-plugin log sources.
-            ex.printStackTrace();
-            getPluginLoader().disablePlugin(this);
-            return;
-        }
+		try {
+			Class.forName("org.spigotmc.SpigotConfig");
+		} catch (ClassNotFoundException ex) {
+			Log.error("================= *** DUELS LOAD FAILURE *** =================");
+			Log.error("Duels requires a spigot server to run, but this server was not running on spigot!");
+			Log.error("Spigot is compatible with CraftBukkit/Bukkit plugins.");
+			Log.error("================= *** DUELS LOAD FAILURE *** =================");
+			this.getServer().getPluginManager().disablePlugin(this);
+			return;
+		}
 
-        Log.addSource(logManager);
-        logManager.debug("onEnable start -> " + System.currentTimeMillis() + "\n");
+		loadables.add(configuration = new Config(this));
+		loadables.add(lang = new Lang(this));
+		loadables.add(userManager = new UserManagerImpl(this));
+		loadables.add(guiListener = new GuiListener<>(this));
+		loadables.add(kitManager = new KitManagerImpl(this));
+		loadables.add(arenaManager = new ArenaManagerImpl(this));
+		loadables.add(settingManager = new SettingsManager(this));
+		loadables.add(playerManager = new PlayerInfoManager(this));
+		loadables.add(spectateManager = new SpectateManagerImpl(this));
+		loadables.add(bettingManager = new BettingManager(this));
+		loadables.add(inventoryManager = new InventoryManager(this));
+		loadables.add(duelManager = new DuelManager(this));
+		loadables.add(queueManager = new QueueManager(this));
+		loadables.add(queueSignManager = new QueueSignManagerImpl(this));
+		loadables.add(requestManager = new RequestManager(this));
+		hookManager = new HookManager(this);
+		loadables.add(teleport = new Teleport(this));
+		loadables.add(extensionManager = new ExtensionManager(this));
 
-        try {
-            Class.forName("org.spigotmc.SpigotConfig");
-        } catch (ClassNotFoundException ex) {
-            Log.error("================= *** DUELS LOAD FAILURE *** =================");
-            Log.error("Duels requires a spigot server to run, but this server was not running on spigot!");
-            Log.error("To run your server on spigot, follow this guide: " + SPIGOT_INSTALLATION_URL);
-            Log.error("Spigot is compatible with CraftBukkit/Bukkit plugins.");
-            Log.error("================= *** DUELS LOAD FAILURE *** =================");
-            getPluginLoader().disablePlugin(this);
-            return;
-        }
+		if (! load()) {
+			this.getServer().getPluginManager().disablePlugin(this);
+			return;
+		}
 
-        loadables.add(configuration = new Config(this));
-        loadables.add(lang = new Lang(this));
-        loadables.add(userManager = new UserManagerImpl(this));
-        loadables.add(guiListener = new GuiListener<>(this));
-        loadables.add(kitManager = new KitManagerImpl(this));
-        loadables.add(arenaManager = new ArenaManagerImpl(this));
-        loadables.add(settingManager = new SettingsManager(this));
-        loadables.add(playerManager = new PlayerInfoManager(this));
-        loadables.add(spectateManager = new SpectateManagerImpl(this));
-        loadables.add(bettingManager = new BettingManager(this));
-        loadables.add(inventoryManager = new InventoryManager(this));
-        loadables.add(duelManager = new DuelManager(this));
-        loadables.add(queueManager = new QueueManager(this));
-        loadables.add(queueSignManager = new QueueSignManagerImpl(this));
-        loadables.add(requestManager = new RequestManager(this));
-        hookManager = new HookManager(this);
-        loadables.add(teleport = new Teleport(this));
-        loadables.add(extensionManager = new ExtensionManager(this));
+		new KitItemListener(this);
+		new DamageListener(this);
+		new PotionListener(this);
+		new TeleportListener(this);
+		new ProjectileHitListener(this);
+		new EnderpearlListener(this);
+		new KitOptionsListener(this);
+		new LingerPotionListener(this);
 
-        if (!load()) {
-            getPluginLoader().disablePlugin(this);
-            return;
-        }
+	}
 
-        new KitItemListener(this);
-        new DamageListener(this);
-        new PotionListener(this);
-        new TeleportListener(this);
-        new ProjectileHitListener(this);
-        new EnderpearlListener(this);
-        new KitOptionsListener(this);
-        new LingerPotionListener(this);
+	@Override
+	public void onDisable() {
+		final long start = System.currentTimeMillis();
+		long last = start;
+		logManager.debug("onDisable start -> " + start + "\n");
+		unload();
+		logManager.debug("unload done (took " + Math.abs(last - (last = System.currentTimeMillis())) + "ms)");
+		Log.clearSources();
+		logManager.debug("Log#clearSources done (took " + Math.abs(last - System.currentTimeMillis()) + "ms)");
+		logManager.handleDisable();
+		instance = null;
+		log(Level.INFO, "Disable process took " + (System.currentTimeMillis() - start) + "ms.");
+	}
 
-        new Metrics(this, BSTATS_ID);
+	/**
+	 * @return true if load was successful, otherwise false
+	 */
+	private boolean load() {
+		registerCommands(
+				new DuelCommand(this),
+				new QueueCommand(this),
+				new SpectateCommand(this),
+				new DuelsCommand(this)
+				);
 
-        if (!configuration.isCheckForUpdates()) {
-            return;
-        }
+		for (final Loadable loadable : loadables) {
+			final String name = loadable.getClass().getSimpleName();
 
-        final UpdateChecker updateChecker = new UpdateChecker(this, RESOURCE_ID);
-        updateChecker.check((hasUpdate, newVersion) -> {
-            if (hasUpdate) {
-                DuelsPlugin.this.updateAvailable = true;
-                DuelsPlugin.this.newVersion = newVersion;
-                Log.info("===============================================");
-                Log.info("An update for " + getName() + " is available!");
-                Log.info("Download " + getName() + " v" + newVersion + " here:");
-                Log.info(getDescription().getWebsite());
-                Log.info("===============================================");
-            } else {
-                Log.info("No updates were available. You are on the latest version!");
-            }
-        });
-    }
+			try {
+				final long now = System.currentTimeMillis();
+				logManager.debug("Starting load of " + name + " at " + now);
+				loadable.handleLoad();
+				logManager.debug(name + " has been loaded. (took " + (System.currentTimeMillis() - now) + "ms)");
+				lastLoad = loadables.indexOf(loadable);
+			} catch (Exception ex) {
+				// Handles the case of exceptions from LogManager not being logged in file
+				if (loadable instanceof LogSource) {
+					ex.printStackTrace();
+				}
 
-    @Override
-    public void onDisable() {
-        final long start = System.currentTimeMillis();
-        long last = start;
-        logManager.debug("onDisable start -> " + start + "\n");
-        unload();
-        logManager.debug("unload done (took " + Math.abs(last - (last = System.currentTimeMillis())) + "ms)");
-        Log.clearSources();
-        logManager.debug("Log#clearSources done (took " + Math.abs(last - System.currentTimeMillis()) + "ms)");
-        logManager.handleDisable();
-        instance = null;
-        log(Level.INFO, "Disable process took " + (System.currentTimeMillis() - start) + "ms.");
-    }
+				Log.error("There was an error while loading " + name + "! If you believe this is an issue from the plugin, please contact the developer.", ex);
+				return false;
+			}
+		}
 
-    /**
-     * @return true if load was successful, otherwise false
-     */
-    private boolean load() {
-        registerCommands(
-            new DuelCommand(this),
-            new QueueCommand(this),
-            new SpectateCommand(this),
-            new DuelsCommand(this)
-        );
+		return true;
+	}
 
-        for (final Loadable loadable : loadables) {
-            final String name = loadable.getClass().getSimpleName();
+	/**
+	 * @return true if unload was successful, otherwise false
+	 */
+	private boolean unload() {
+		registeredListeners.forEach(HandlerList::unregisterAll);
+		registeredListeners.clear();
+		// Unregister all extension listeners that isn't using the method Duels#registerListener
+		HandlerList.getRegisteredListeners(this)
+		.stream()
+		.filter(listener -> listener.getListener().getClass().getClassLoader().getClass().isAssignableFrom(ExtensionClassLoader.class))
+		.forEach(listener -> HandlerList.unregisterAll(listener.getListener()));
+		commands.clear();
 
-            try {
-                final long now = System.currentTimeMillis();
-                logManager.debug("Starting load of " + name + " at " + now);
-                loadable.handleLoad();
-                logManager.debug(name + " has been loaded. (took " + (System.currentTimeMillis() - now) + "ms)");
-                lastLoad = loadables.indexOf(loadable);
-            } catch (Exception ex) {
-                // Handles the case of exceptions from LogManager not being logged in file
-                if (loadable instanceof LogSource) {
-                    ex.printStackTrace();
-                }
+		for (final Loadable loadable : Lists.reverse(loadables)) {
+			final String name = loadable.getClass().getSimpleName();
 
-                Log.error("There was an error while loading " + name + "! If you believe this is an issue from the plugin, please contact the developer.", ex);
-                return false;
-            }
-        }
+			try {
+				if (loadables.indexOf(loadable) > lastLoad) {
+					continue;
+				}
 
-        return true;
-    }
+				final long now = System.currentTimeMillis();
+				logManager.debug("Starting unload of " + name + " at " + now);
+				loadable.handleUnload();
+				logManager.debug(name + " has been unloaded. (took " + (System.currentTimeMillis() - now) + "ms)");
+			} catch (Exception ex) {
+				Log.error("There was an error while unloading " + name + "! If you believe this is an issue from the plugin, please contact the developer.", ex);
+				return false;
+			}
+		}
 
-    /**
-     * @return true if unload was successful, otherwise false
-     */
-    private boolean unload() {
-        registeredListeners.forEach(HandlerList::unregisterAll);
-        registeredListeners.clear();
-        // Unregister all extension listeners that isn't using the method Duels#registerListener
-        HandlerList.getRegisteredListeners(this)
-            .stream()
-            .filter(listener -> listener.getListener().getClass().getClassLoader().getClass().isAssignableFrom(ExtensionClassLoader.class))
-            .forEach(listener -> HandlerList.unregisterAll(listener.getListener()));
-        commands.clear();
+		return true;
+	}
 
-        for (final Loadable loadable : Lists.reverse(loadables)) {
-            final String name = loadable.getClass().getSimpleName();
 
-            try {
-                if (loadables.indexOf(loadable) > lastLoad) {
-                    continue;
-                }
+	@SafeVarargs
+	private final void registerCommands(final AbstractCommand<DuelsPlugin>... commands) {
+		for (final AbstractCommand<DuelsPlugin> command : commands) {
+			this.commands.put(command.getName().toLowerCase(), command);
+			command.register();
+		}
+	}
 
-                final long now = System.currentTimeMillis();
-                logManager.debug("Starting unload of " + name + " at " + now);
-                loadable.handleUnload();
-                logManager.debug(name + " has been unloaded. (took " + (System.currentTimeMillis() - now) + "ms)");
-            } catch (Exception ex) {
-                Log.error("There was an error while unloading " + name + "! If you believe this is an issue from the plugin, please contact the developer.", ex);
-                return false;
-            }
-        }
+	@Override
+	public boolean registerSubCommand(@NotNull final String command, @NotNull final SubCommand subCommand) {
+		Objects.requireNonNull(command, "command");
+		Objects.requireNonNull(subCommand, "subCommand");
 
-        return true;
-    }
+		final AbstractCommand<DuelsPlugin> result = commands.get(command.toLowerCase());
 
-    @SafeVarargs
-    private final void registerCommands(final AbstractCommand<DuelsPlugin>... commands) {
-        for (final AbstractCommand<DuelsPlugin> command : commands) {
-            this.commands.put(command.getName().toLowerCase(), command);
-            command.register();
-        }
-    }
+		if (result == null || result.isChild(subCommand.getName().toLowerCase())) {
+			return false;
+		}
 
-    @Override
-    public boolean registerSubCommand(@NotNull final String command, @NotNull final SubCommand subCommand) {
-        Objects.requireNonNull(command, "command");
-        Objects.requireNonNull(subCommand, "subCommand");
+		result.child(new AbstractCommand<DuelsPlugin>(this, subCommand) {
+			@Override
+			protected void execute(final CommandSender sender, final String label, final String[] args) {
+				subCommand.execute(sender, label, args);
+			}
+		});
+		return true;
+	}
 
-        final AbstractCommand<DuelsPlugin> result = commands.get(command.toLowerCase());
+	@Override
+	public void registerListener(@NotNull final Listener listener) {
+		Objects.requireNonNull(listener, "listener");
+		registeredListeners.add(listener);
+		Bukkit.getPluginManager().registerEvents(listener, this);
+	}
 
-        if (result == null || result.isChild(subCommand.getName().toLowerCase())) {
-            return false;
-        }
+	@Override
+	public boolean reload() {
+		if (! (unload() && load())) {
+			this.getServer().getPluginManager().disablePlugin(this);
+			return false;
+		}
 
-        result.child(new AbstractCommand<DuelsPlugin>(this, subCommand) {
-            @Override
-            protected void execute(final CommandSender sender, final String label, final String[] args) {
-                subCommand.execute(sender, label, args);
-            }
-        });
-        return true;
-    }
+		return true;
+	}
 
-    @Override
-    public void registerListener(@NotNull final Listener listener) {
-        Objects.requireNonNull(listener, "listener");
-        registeredListeners.add(listener);
-        Bukkit.getPluginManager().registerEvents(listener, this);
-    }
+	@Override
+	public String getVersion() {
+		return configuration.getVersion();
+	}
 
-    @Override
-    public boolean reload() {
-        if (!(unload() && load())) {
-            getPluginLoader().disablePlugin(this);
-            return false;
-        }
+	public boolean reload(final Loadable loadable) {
+		boolean unloaded = false;
+		try {
+			loadable.handleUnload();
+			unloaded = true;
+			loadable.handleLoad();
+			return true;
+		} catch (Exception ex) {
+			Log.error("There was an error while " + (unloaded ? "loading " : "unloading ")
+					+ loadable.getClass().getSimpleName()
+					+ "! If you believe this is an issue from the plugin, please contact the developer.", ex);
+			return false;
+		}
+	}
 
-        return true;
-    }
+	@Override
+	public BukkitTask doSync(@NotNull final Runnable task) {
+		Objects.requireNonNull(task, "task");
+		return Bukkit.getScheduler().runTask(this, task);
+	}
 
-    @Override
-    public String getVersion() {
-        return getDescription().getVersion();
-    }
+	@Override
+	public BukkitTask doSyncAfter(@NotNull final Runnable task, final long delay) {
+		Objects.requireNonNull(task, "task");
+		return Bukkit.getScheduler().runTaskLater(this, task, delay);
+	}
 
-    public boolean reload(final Loadable loadable) {
-        boolean unloaded = false;
-        try {
-            loadable.handleUnload();
-            unloaded = true;
-            loadable.handleLoad();
-            return true;
-        } catch (Exception ex) {
-            Log.error("There was an error while " + (unloaded ? "loading " : "unloading ")
-                + loadable.getClass().getSimpleName()
-                + "! If you believe this is an issue from the plugin, please contact the developer.", ex);
-            return false;
-        }
-    }
+	@Override
+	public BukkitTask doSyncRepeat(@NotNull final Runnable task, final long delay, final long period) {
+		Objects.requireNonNull(task, "task");
+		return Bukkit.getScheduler().runTaskTimer(this, task, delay, period);
+	}
 
-    @Override
-    public BukkitTask doSync(@NotNull final Runnable task) {
-        Objects.requireNonNull(task, "task");
-        return Bukkit.getScheduler().runTask(this, task);
-    }
+	@Override
+	public BukkitTask doAsync(@NotNull final Runnable task) {
+		Objects.requireNonNull(task, "task");
+		return Bukkit.getScheduler().runTaskAsynchronously(this, task);
+	}
 
-    @Override
-    public BukkitTask doSyncAfter(@NotNull final Runnable task, final long delay) {
-        Objects.requireNonNull(task, "task");
-        return Bukkit.getScheduler().runTaskLater(this, task, delay);
-    }
+	@Override
+	public BukkitTask doAsyncAfter(@NotNull final Runnable task, final long delay) {
+		Objects.requireNonNull(task, "task");
+		return Bukkit.getScheduler().runTaskLaterAsynchronously(this, task, delay);
+	}
 
-    @Override
-    public BukkitTask doSyncRepeat(@NotNull final Runnable task, final long delay, final long period) {
-        Objects.requireNonNull(task, "task");
-        return Bukkit.getScheduler().runTaskTimer(this, task, delay, period);
-    }
+	@Override
+	public BukkitTask doAsyncRepeat(@NotNull final Runnable task, final long delay, final long period) {
+		Objects.requireNonNull(task, "task");
+		return Bukkit.getScheduler().runTaskTimerAsynchronously(this, task, delay, period);
+	}
 
-    @Override
-    public BukkitTask doAsync(@NotNull final Runnable task) {
-        Objects.requireNonNull(task, "task");
-        return Bukkit.getScheduler().runTaskAsynchronously(this, task);
-    }
+	@Override
+	public void cancelTask(@NotNull final BukkitTask task) {
+		Objects.requireNonNull(task, "task");
+		task.cancel();
+	}
 
-    @Override
-    public BukkitTask doAsyncAfter(@NotNull final Runnable task, final long delay) {
-        Objects.requireNonNull(task, "task");
-        return Bukkit.getScheduler().runTaskLaterAsynchronously(this, task, delay);
-    }
+	@Override
+	public void cancelTask(final int id) {
+		Bukkit.getScheduler().cancelTask(id);
+	}
 
-    @Override
-    public BukkitTask doAsyncRepeat(@NotNull final Runnable task, final long delay, final long period) {
-        Objects.requireNonNull(task, "task");
-        return Bukkit.getScheduler().runTaskTimerAsynchronously(this, task, delay, period);
-    }
+	@Override
+	public void info(@NotNull final String message) {
+		Objects.requireNonNull(message, "message");
+		Log.info(message);
+	}
 
-    @Override
-    public void cancelTask(@NotNull final BukkitTask task) {
-        Objects.requireNonNull(task, "task");
-        task.cancel();
-    }
+	@Override
+	public void warn(@NotNull final String message) {
+		Objects.requireNonNull(message, "message");
+		Log.warn(message);
+	}
 
-    @Override
-    public void cancelTask(final int id) {
-        Bukkit.getScheduler().cancelTask(id);
-    }
+	@Override
+	public void error(@NotNull final String message) {
+		Objects.requireNonNull(message, "message");
+		Log.error(message);
+	}
 
-    @Override
-    public void info(@NotNull final String message) {
-        Objects.requireNonNull(message, "message");
-        Log.info(message);
-    }
+	@Override
+	public void error(@NotNull final String message, @NotNull final Throwable thrown) {
+		Objects.requireNonNull(message, "message");
+		Objects.requireNonNull(thrown, "thrown");
+		Log.error(message, thrown);
+	}
 
-    @Override
-    public void warn(@NotNull final String message) {
-        Objects.requireNonNull(message, "message");
-        Log.warn(message);
-    }
+	public Loadable find(final String name) {
+		return loadables.stream().filter(loadable -> loadable.getClass().getSimpleName().equalsIgnoreCase(name)).findFirst().orElse(null);
+	}
 
-    @Override
-    public void error(@NotNull final String message) {
-        Objects.requireNonNull(message, "message");
-        Log.error(message);
-    }
+	public List<String> getReloadables() {
+		return loadables.stream()
+				.filter(loadable -> loadable instanceof Reloadable)
+				.map(loadable -> loadable.getClass().getSimpleName())
+				.collect(Collectors.toList());
+	}
 
-    @Override
-    public void error(@NotNull final String message, @NotNull final Throwable thrown) {
-        Objects.requireNonNull(message, "message");
-        Objects.requireNonNull(thrown, "thrown");
-        Log.error(message, thrown);
-    }
+	@Override
+	public void log(final Level level, final String s) {
+		getLogger().log(level, s);
+	}
 
-    public Loadable find(final String name) {
-        return loadables.stream().filter(loadable -> loadable.getClass().getSimpleName().equalsIgnoreCase(name)).findFirst().orElse(null);
-    }
+	@Override
+	public void log(final Level level, final String s, final Throwable thrown) {
+		getLogger().log(level, s, thrown);
+	}
 
-    public List<String> getReloadables() {
-        return loadables.stream()
-            .filter(loadable -> loadable instanceof Reloadable)
-            .map(loadable -> loadable.getClass().getSimpleName())
-            .collect(Collectors.toList());
-    }
+	public LogManager getLogManager() {
+		return logManager;
+	}
 
-    @Override
-    public void log(final Level level, final String s) {
-        getLogger().log(level, s);
-    }
+	public Config getConfiguration() {
+		return configuration;
+	}
 
-    @Override
-    public void log(final Level level, final String s, final Throwable thrown) {
-        getLogger().log(level, s, thrown);
-    }
+	public Lang getLang() {
+		return lang;
+	}
+
+	public UserManagerImpl getUserManager() {
+		return userManager;
+	}
+
+	public GuiListener<DuelsPlugin> getGuiListener() {
+		return guiListener;
+	}
+
+	public KitManagerImpl getKitManager() {
+		return kitManager;
+	}
+
+	public ArenaManagerImpl getArenaManager() {
+		return arenaManager;
+	}
+
+	public SettingsManager getSettingManager() {
+		return settingManager;
+	}
+
+	public PlayerInfoManager getPlayerManager() {
+		return playerManager;
+	}
+
+	public SpectateManagerImpl getSpectateManager() {
+		return spectateManager;
+	}
+
+	public BettingManager getBettingManager() {
+		return bettingManager;
+	}
+
+	public InventoryManager getInventoryManager() {
+		return inventoryManager;
+	}
+
+	public DuelManager getDuelManager() {
+		return duelManager;
+	}
+
+	public QueueManager getQueueManager() {
+		return queueManager;
+	}
+
+	public QueueSignManagerImpl getQueueSignManager() {
+		return queueSignManager;
+	}
+
+	public RequestManager getRequestManager() {
+		return requestManager;
+	}
+
+	public HookManager getHookManager() {
+		return hookManager;
+	}
+
+	public Teleport getTeleport() {
+		return teleport;
+	}
+
+	public ExtensionManager getExtensionManager() {
+		return extensionManager;
+	}
+	public static DuelsPlugin getInstance() {
+		return instance;
+	}
+
 }

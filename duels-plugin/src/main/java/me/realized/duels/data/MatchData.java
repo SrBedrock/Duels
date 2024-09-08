@@ -1,47 +1,63 @@
 package me.realized.duels.data;
 
-import lombok.Getter;
 import me.realized.duels.api.user.MatchInfo;
 
 public class MatchData implements MatchInfo {
 
-    @Getter
-    private String winner;
-    @Getter
-    private String loser;
-    @Getter
-    private String kit;
-    @Getter
-    private long time;
-    @Getter
-    private long duration;
-    @Getter
-    private double health;
+	private String winner;
+	private String loser;
+	private String kit;
+	private long time;
+	private long duration;
+	private double health;
 
-    private MatchData() {}
+	public MatchData(final String winner, final String loser, final String kit, final long time, final long duration, final double health) {
+		this.winner = winner;
+		this.loser = loser;
+		this.kit = kit;
+		this.time = time;
+		this.duration = duration;
+		this.health = health;
+	}
 
-    public MatchData(final String winner, final String loser, final String kit, final long time, final long duration, final double health) {
-        this.winner = winner;
-        this.loser = loser;
-        this.kit = kit;
-        this.time = time;
-        this.duration = duration;
-        this.health = health;
-    }
+	public String getWinner() {
+		return winner;
+	}
 
-    @Override
-    public long getCreation() {
-        return time;
-    }
+	public String getLoser() {
+		return loser;
+	}
 
-    @Override
-    public String toString() {
-        return "MatchData{" +
-            "winner='" + winner + '\'' +
-            ", loser='" + loser + '\'' +
-            ", time=" + time +
-            ", duration=" + duration +
-            ", health=" + health +
-            '}';
-    }
+	public String getKit() {
+		return kit;
+	}
+
+	public long getTime() {
+		return time;
+	}
+
+	public long getDuration() {
+		return duration;
+	}
+
+	public double getHealth() {
+		return health;
+	}
+
+	@Override
+	public long getCreation() {
+		return time;
+	}
+
+	@Override
+	public String toString() {
+		return "MatchData{" +
+				"winner='" + winner + '\'' +
+				", loser='" + loser + '\'' +
+				", time=" + time +
+				", duration=" + duration +
+				", health=" + health +
+				'}';
+	}
+
 }

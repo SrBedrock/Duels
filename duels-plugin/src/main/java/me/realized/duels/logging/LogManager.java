@@ -10,84 +10,88 @@ import java.util.logging.Formatter;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
 import java.util.logging.Logger;
-import lombok.Getter;
+
 import me.realized.duels.DuelsPlugin;
 import me.realized.duels.util.DateUtil;
 import me.realized.duels.util.Log.LogSource;
 
 public class LogManager implements LogSource {
 
-    @Getter
-    private final Logger logger = Logger.getAnonymousLogger();
-    private final FileHandler handler;
+	private final Logger logger = Logger.getAnonymousLogger();
+	private final FileHandler handler;
 
-    public LogManager(final DuelsPlugin plugin) throws IOException {
-        final File pluginFolder = plugin.getDataFolder();
+	public LogManager(final DuelsPlugin plugin) throws IOException {
+		final File pluginFolder = plugin.getDataFolder();
 
-        if (!pluginFolder.exists()) {
-            pluginFolder.mkdir();
-        }
+		if (! pluginFolder.exists()) {
+			pluginFolder.mkdir();
+		}
 
-        final File folder = new File(pluginFolder, "logs");
+		final File folder = new File(pluginFolder, "logs");
 
-        if (!folder.exists()) {
-            folder.mkdir();
-        }
+		if (! folder.exists()) {
+			folder.mkdir();
+		}
 
-        logger.setLevel(Level.ALL);
-        logger.setUseParentHandlers(false);
+		logger.setLevel(Level.ALL);
+		logger.setUseParentHandlers(false);
 
-        final File file = new File(folder, DateUtil.formatDate(new Date()) + ".log");
+		final File file = new File(folder, DateUtil.formatDate(new Date()) + ".log");
 
-        if (!file.exists()) {
-            file.createNewFile();
-        }
+		if (! file.exists()) {
+			file.createNewFile();
+		}
 
-        handler = new FileHandler(file.getCanonicalPath(), true);
-        handler.setLevel(Level.ALL);
-        handler.setFormatter(new Formatter() {
-            @Override
-            public String format(final LogRecord record) {
-                String thrown = "";
+		handler = new FileHandler(file.getCanonicalPath(), true);
+		handler.setLevel(Level.ALL);
+		handler.setFormatter(new Formatter() {
+			@Override
+			public String format(final LogRecord record) {
+				String thrown = "";
 
-                if (record.getThrown() != null) {
-                    final StringWriter stringWriter = new StringWriter();
-                    final PrintWriter printWriter = new PrintWriter(stringWriter);
-                    record.getThrown().printStackTrace(printWriter);
-                    printWriter.close();
-                    thrown = stringWriter.toString();
-                }
+				if (record.getThrown() != null) {
+					final StringWriter stringWriter = new StringWriter();
+					final PrintWriter printWriter = new PrintWriter(stringWriter);
+					record.getThrown().printStackTrace(printWriter);
+					printWriter.close();
+					thrown = stringWriter.toString();
+				}
 
-                return "[" + DateUtil.formatDatetime(record.getMillis()) + "] [" + record.getLevel().getName() + "] " + record.getMessage() + '\n' + thrown;
-            }
-        });
-        logger.addHandler(handler);
-    }
+				return "[" + DateUtil.formatDatetime(record.getMillis()) + "] [" + record.getLevel().getName() + "] " + record.getMessage() + '\n' + thrown;
+			}
+		});
+		logger.addHandler(handler);
+	}
 
-    public void handleDisable() {
-        handler.close();
-        logger.removeHandler(handler);
-    }
+	public Logger getLogger() {
+		return logger;
+	}
 
-    public void debug(final String s) {
-        log(Level.INFO, "[DEBUG] " + s);
-    }
+	public void handleDisable() {
+		handler.close();
+		logger.removeHandler(handler);
+	}
 
-    @Override
-    public void log(final Level level, final String s) {
-        log(level, s, null);
-    }
+	public void debug(final String s) {
+		log(Level.INFO, "[DEBUG] " + s);
+	}
 
-    @Override
-    public void log(final Level level, final String s, final Throwable thrown) {
-        if (handler == null) {
-            return;
-        }
+	@Override
+	public void log(final Level level, final String s) {
+		log(level, s, null);
+	}
 
-        if (thrown != null) {
-            getLogger().log(level, s, thrown);
-        } else {
-            getLogger().log(level, s);
-        }
-    }
+	@Override
+	public void log(final Level level, final String s, final Throwable thrown) {
+		if (handler == null) {
+			return;
+		}
+
+		if (thrown != null) {
+			DuelsPlugin.getInstance().getLogger().info(level.getName() + s + thrown.getMessage());
+		} else {
+			getLogger().log(level, s);
+		}
+	}
+
 }

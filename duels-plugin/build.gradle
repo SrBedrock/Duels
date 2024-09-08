@@ -40,7 +40,6 @@ dependencies {
 
     implementation project(':duels-api')
     implementation project(':duels-worldguard')
-    implementation project(':duels-worldguard-v6')
     implementation project(':duels-worldguard-v7')
     implementation 'com.fasterxml.jackson.core:jackson-databind:2.13.1'
 }
@@ -54,7 +53,6 @@ shadowJar {
     dependencies {
         include(project(':duels-api'))
         include(project(':duels-worldguard'))
-        include(project(':duels-worldguard-v6'))
         include(project(':duels-worldguard-v7'))
         include(dependency('com.fasterxml.jackson.core:.*'))
     }

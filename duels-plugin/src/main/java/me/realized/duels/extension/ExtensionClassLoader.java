@@ -1,6 +1,5 @@
 package me.realized.duels.extension;
 
-import com.google.common.io.ByteStreams;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -14,100 +13,106 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.jar.Manifest;
-import lombok.Getter;
+
+import com.google.common.io.ByteStreams;
+
 import me.realized.duels.api.extension.DuelsExtension;
 
 public class ExtensionClassLoader extends URLClassLoader {
 
-    private final JarFile jar;
-    private final Manifest manifest;
-    private final URL url;
-    private final Map<String, Class<?>> classes = new ConcurrentHashMap<>();
-    @Getter
-    private final DuelsExtension extension;
+	private final JarFile jar;
+	private final Manifest manifest;
+	private final URL url;
+	private final Map<String, Class<?>> classes = new ConcurrentHashMap<>();
+	private final DuelsExtension extension;
 
-    ExtensionClassLoader(final File file, final ExtensionInfo info, final ClassLoader parent) throws Exception {
-        super(new URL[] {file.toURI().toURL()}, parent);
-        this.jar = new JarFile(file);
-        this.manifest = jar.getManifest();
-        this.url = file.toURI().toURL();
+	public ExtensionClassLoader(final File file, final ExtensionInfo info, final ClassLoader parent) throws Exception {
+		super(new URL[]{file.toURI().toURL()}, parent);
+		this.jar = new JarFile(file);
+		this.manifest = jar.getManifest();
+		this.url = file.toURI().toURL();
 
-        final Class<?> mainClass = Class.forName(info.getMain(), true, this);
+		final Class<?> mainClass = Class.forName(info.getMain(), true, this);
 
-        if (!DuelsExtension.class.isAssignableFrom(mainClass)) {
-            throw new RuntimeException(mainClass.getName() + " does not extend DuelsExtension");
-        }
+		if (!DuelsExtension.class.isAssignableFrom(mainClass)) {
+			throw new RuntimeException(mainClass.getName() + " does not extend DuelsExtension");
+		}
 
-        this.extension = mainClass.asSubclass(DuelsExtension.class).newInstance();
-    }
+		this.extension = mainClass.asSubclass(DuelsExtension.class).getDeclaredConstructor().newInstance();
+	}
 
-    protected Class<?> findClass(final String name) throws ClassNotFoundException {
-        Class<?> result = this.classes.get(name);
+	protected Class<?> findClass(final String name) throws ClassNotFoundException {
+		Class<?> result = this.classes.get(name);
 
-        if (result == null) {
-            final String path = name.replace('.', '/').concat(".class");
-            final JarEntry entry = jar.getJarEntry(path);
+		if (result == null) {
+			final String path = name.replace('.', '/').concat(".class");
+			final JarEntry entry = jar.getJarEntry(path);
 
-            if (entry != null) {
-                final byte[] classBytes;
+			if (entry != null) {
+				final byte[] classBytes;
 
-                try (InputStream inputStream = jar.getInputStream(entry)) {
-                    classBytes = ByteStreams.toByteArray(inputStream);
-                } catch (IOException ex) {
-                    throw new ClassNotFoundException(name, ex);
-                }
+				try (InputStream inputStream = jar.getInputStream(entry)) {
+					classBytes = ByteStreams.toByteArray(inputStream);
+				} catch (IOException ex) {
+					throw new ClassNotFoundException(name, ex);
+				}
 
-                final int dot = name.lastIndexOf('.');
+				final int dot = name.lastIndexOf('.');
 
-                if (dot != -1) {
-                    final String pkgName = name.substring(0, dot);
+				if (dot != -1) {
+					final String pkgName = name.substring(0, dot);
 
-                    if (getPackage(pkgName) == null) {
-                        try {
-                            if (manifest != null) {
-                                definePackage(pkgName, manifest, url);
-                            } else {
-                                definePackage(pkgName, null, null, null, null, null, null, null);
-                            }
-                        } catch (IllegalArgumentException ex) {
-                            if (getPackage(pkgName) == null) {
-                                throw new IllegalStateException("Cannot find package " + pkgName);
-                            }
-                        }
-                    }
-                }
+					if (getDefinedPackage(pkgName) == null) {
+						try {
+							if (manifest != null) {
+								definePackage(pkgName, manifest, url);
+							} else {
+								definePackage(pkgName, null, null, null, null, null, null, null);
+							}
+						} catch (IllegalArgumentException ex) {
+							if (getDefinedPackage(pkgName) == null) {
+								throw new IllegalStateException("Cannot find package " + pkgName);
+							}
+						}
+					}
+				}
 
-                final CodeSigner[] signers = entry.getCodeSigners();
-                final CodeSource source = new CodeSource(url, signers);
-                result = defineClass(name, classBytes, 0, classBytes.length, source);
+				final CodeSigner[] signers = entry.getCodeSigners();
+				final CodeSource source = new CodeSource(url, signers);
+				result = defineClass(name, classBytes, 0, classBytes.length, source);
 
-                if (result == null) {
-                    result = super.findClass(name);
-                }
+				if (result == null) {
+					result = super.findClass(name);
+				}
 
-                classes.put(name, result);
-            }
-        }
+				classes.put(name, result);
+			}
+		}
 
-        return result;
-    }
+		return result;
+	}
 
-    @Override
-    public URL getResource(final String name) {
-        return findResource(name);
-    }
+	@Override
+	public URL getResource(final String name) {
+		return findResource(name);
+	}
 
-    @Override
-    public Enumeration<URL> getResources(final String name) throws IOException {
-        return findResources(name);
-    }
+	@Override
+	public Enumeration<URL> getResources(final String name) throws IOException {
+		return findResources(name);
+	}
 
-    @Override
-    public void close() throws IOException {
-        try {
-            super.close();
-        } finally {
-            jar.close();
-        }
-    }
+	@Override
+	public void close() throws IOException {
+		try {
+			super.close();
+		} finally {
+			jar.close();
+		}
+	}
+
+	public DuelsExtension getExtension() {
+		return extension;
+	}
+
 }

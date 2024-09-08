@@ -1,23 +1,16 @@
 package me.realized.duels.data;
 
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.databind.DeserializationContext;
-import com.fasterxml.jackson.databind.JsonDeserializer;
-import com.fasterxml.jackson.databind.JsonNode;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.stream.Collectors;
-import me.realized.duels.util.EnumUtil;
-import me.realized.duels.util.collection.StreamUtil;
-import me.realized.duels.util.compat.CompatUtil;
-import me.realized.duels.util.compat.Identifiers;
-import me.realized.duels.util.inventory.ItemBuilder;
-import me.realized.duels.util.inventory.ItemUtil;
-import me.realized.duels.util.json.DefaultBasedDeserializer;
-import me.realized.duels.util.yaml.YamlUtil;
+
+import org.bukkit.Bukkit;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
+import org.bukkit.OfflinePlayer;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
@@ -26,189 +19,197 @@ import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.potion.PotionType;
 
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.databind.DeserializationContext;
+import com.fasterxml.jackson.databind.JsonDeserializer;
+import com.fasterxml.jackson.databind.JsonNode;
+
+import me.realized.duels.util.EnumUtil;
+import me.realized.duels.util.collection.StreamUtil;
+import me.realized.duels.util.compat.CompatUtil;
+import me.realized.duels.util.compat.Identifiers;
+import me.realized.duels.util.inventory.ItemBuilder;
+import me.realized.duels.util.inventory.ItemUtil;
+import me.realized.duels.util.json.DefaultBasedDeserializer;
+
 public class ItemData {
 
-    public static ItemData fromItemStack(final ItemStack item) {
-        return new ItemData(item);
-    }
+	public static ItemData fromItemStack(final ItemStack item) {
+		return new ItemData(item);
+	}
 
-    @SuppressWarnings("unchecked")
-    private static void patchItemFlags(final Map<String, Object> item) {
-        final Object meta = item.get("meta");
+	private Map<String, Object> item;
 
-        if (meta instanceof Map) {
-            final Map<String, Object> metaAsMap = (Map<String, Object>) meta;
-            final Object itemFlags = metaAsMap.get("ItemFlags");
+	private ItemData() {}
 
-            if (itemFlags instanceof Iterable) {
-                metaAsMap.put("ItemFlags", StreamUtil.asStream((Iterable<?>) itemFlags).map(Object::toString).collect(Collectors.toSet()));
-            }
-        }
-    }
+	private ItemData(ItemStack item) {
+		item = Identifiers.removeIdentifier(item);
+		this.item = item.serialize();
+	}
 
-    private Map<String, Object> item;
+	public ItemStack toItemStack(final boolean kitItem) {
+		if (item == null || item.isEmpty()) {
+			return null;
+		}
 
-    private ItemData() {}
+		ItemStack itemStack = ItemStack.deserialize(item);
+		return kitItem ? Identifiers.addIdentifier(itemStack) : itemStack;
+	}
 
-    private ItemData(ItemStack item) {
-        item = Identifiers.removeIdentifier(item);
-        final String dumped = YamlUtil.bukkitYamlDump(item);
-        this.item = YamlUtil.yamlLoad(dumped);
-    }
+	public ItemStack toItemStack() {
+		return toItemStack(true);
+	}
 
-    public ItemStack toItemStack(final boolean kitItem) {
-        if (item == null || item.isEmpty()) {
-            return null;
-        }
+	public static class ItemDataDeserializer extends DefaultBasedDeserializer<ItemData> {
 
-        if (CompatUtil.isPre1_12()) {
-            patchItemFlags(item);
-        }
+		private static final long serialVersionUID = 2L;
+		private static boolean checkOldJson = true;
 
-        final String dumped = YamlUtil.yamlDump(item);
-        ItemStack item = YamlUtil.bukkitYamlLoadAs(dumped, ItemStack.class);
-        return kitItem ? Identifiers.addIdentifier(item) : item;
-    }
+		public ItemDataDeserializer(final JsonDeserializer<?> defaultDeserializer) {
+			super(ItemData.class, defaultDeserializer);
+		}
 
-    public ItemStack toItemStack() {
-        return toItemStack(true);
-    }
+		@Override
+		public ItemData deserialize(final JsonParser parser, final DeserializationContext context) throws IOException {
+			JsonNode node = null;
+			JsonParser actual = parser;
 
-    public static class ItemDataDeserializer extends DefaultBasedDeserializer<ItemData> {
+			// Create a copy of current json as node tree in case old json version is detected.
+			if (checkOldJson) {
+				node = parser.readValueAsTree();
+				actual = parser.getCodec().treeAsTokens(node);
+				actual.nextToken();
+			}
 
-        private static boolean checkOldJson = true;
+			ItemData data = (ItemData) defaultDeserializer.deserialize(actual, context);
 
-        public ItemDataDeserializer(final JsonDeserializer<?> defaultDeserializer) {
-            super(ItemData.class, defaultDeserializer);
-        }
+			if (data.item != null) {
+				// If an item was successfully parsed to new json, disable old json check (assume kit file is in new json format) to reduce overhead.
+				checkOldJson = false;
+			} else if (node != null) {
+				if (! node.isObject()) {
+					return null;
+				}
 
-        @Override
-        public ItemData deserialize(final JsonParser parser, final DeserializationContext context) throws IOException {
-            JsonNode node = null;
-            JsonParser actual = parser;
+				if (node.has("serializedItem")) {
+					return new ItemData(ItemUtil.itemFrom64(node.get("serializedItem").textValue()));
+				}
 
-            // Create a copy of current json as node tree in case old json version is detected.
-            if (checkOldJson) {
-                node = parser.readValueAsTree();
-                actual = parser.getCodec().treeAsTokens(node);
-                actual.nextToken();
-            }
+				final String material = node.get("material").textValue();
+				final int amount = node.has("amount") ? node.get("amount").intValue() : 1;
+				final short damage = node.has("data") ? node.get("data").shortValue() : 0;
+				final Material type = Material.getMaterial(material);
 
-            ItemData data = (ItemData) defaultDeserializer.deserialize(actual, context);
+				if (type == null) {
+					return null;
+				}
 
-            if (data.item != null) {
-                // If an item was successfully parsed to new json, disable old json check (assume kit file is in new json format) to reduce overhead.
-                checkOldJson = false;
-            } else if (node != null) {
-                if (!node.isObject()) {
-                    return null;
-                }
+				final ItemBuilder builder = ItemBuilder.of(type, amount, damage);
 
-                if (node.has("serializedItem")) {
-                    return new ItemData(ItemUtil.itemFrom64(node.get("serializedItem").textValue()));
-                }
+				if (node.has("displayName")) {
+					builder.name(node.get("displayName").textValue());
+				}
 
-                final String material = node.get("material").textValue();
-                final int amount = node.has("amount") ? node.get("amount").intValue() : 1;
-                final short damage = node.has("data") ? node.get("data").shortValue() : 0;
-                final Material type = Material.getMaterial(material);
+				if (node.has("lore")) {
+					builder.lore(StreamUtil.asStream(node.get("lore")).map(JsonNode::textValue).collect(Collectors.toList()));
+				}
 
-                if (type == null) {
-                    return null;
-                }
+				if (node.has("enchantments")) {
+					final JsonNode enchantments = node.get("enchantments");
 
-                final ItemBuilder builder = ItemBuilder.of(type, amount, damage);
+					StreamUtil.asStream(enchantments.fieldNames()).forEach(entry -> {
+						final NamespacedKey key = NamespacedKey.minecraft(entry);
+						final Enchantment enchantment = Enchantment.getByKey(key);
 
-                if (node.has("displayName")) {
-                    builder.name(node.get("displayName").textValue());
-                }
+						if (enchantment == null) {
+							return;
+						}
 
-                if (node.has("lore")) {
-                    builder.lore(StreamUtil.asStream(node.get("lore")).map(JsonNode::textValue).collect(Collectors.toList()));
-                }
+						builder.enchant(enchantment, enchantments.get(entry).asInt());
+					});
+				}
 
-                if (node.has("enchantments")) {
-                    final JsonNode enchantments = node.get("enchantments");
+				if (node.has("flags") && CompatUtil.hasItemFlag()) {
+					final JsonNode flags = node.get("flags");
+					StreamUtil.asStream(flags).forEach(flagNode -> {
+						final ItemFlag flag = EnumUtil.getByName(flagNode.textValue(), ItemFlag.class);
 
-                    StreamUtil.asStream(enchantments.fieldNames()).forEach(entry -> {
-                        final Enchantment enchantment = Enchantment.getByName(entry);
+						if (flag == null) {
+							return;
+						}
 
-                        if (enchantment == null) {
-                            return;
-                        }
+						builder.editMeta(meta -> meta.addItemFlags(flag));
+					});
+				}
 
-                        builder.enchant(enchantment, enchantments.get(entry).asInt());
-                    });
-                }
+				if (node.has("unbreakable") && node.get("unbreakable").booleanValue()) {
+					builder.unbreakable();
+				}
 
-                if (node.has("flags") && CompatUtil.hasItemFlag()) {
-                    final JsonNode flags = node.get("flags");
-                    StreamUtil.asStream(flags).forEach(flagNode -> {
-                        final ItemFlag flag = EnumUtil.getByName(flagNode.textValue(), ItemFlag.class);
+				if (node.has("owner")) {
+					String ownerIdentifier = node.get("owner").textValue();
+					OfflinePlayer owner;
 
-                        if (flag == null) {
-                            return;
-                        }
+					try {
+						// Try to parse the identifier as a UUID.
+						UUID ownerUUID = UUID.fromString(ownerIdentifier);
+						owner = Bukkit.getOfflinePlayer(ownerUUID);
+					} catch (IllegalArgumentException e) {
+						// If parsing fails, assume it's a player name.
+						owner = Bukkit.getOfflinePlayer(ownerIdentifier);
+					}
 
-                        builder.editMeta(meta -> meta.addItemFlags(flag));
-                    });
-                }
+					builder.head(owner);
+				}
 
-                if (node.has("unbreakable") && node.get("unbreakable").booleanValue()) {
-                    builder.unbreakable();
-                }
+				if (node.has("color")) {
+					builder.leatherArmorColor(node.get("color").textValue());
+				}
 
-                if (node.has("owner")) {
-                    builder.head(node.get("owner").textValue());
-                }
+				if (node.has("effects")) {
+					final JsonNode effects = node.get("effects");
+					builder.editMeta(meta -> {
+						final PotionMeta potionMeta = (PotionMeta) meta;
 
-                if (node.has("color")) {
-                    builder.leatherArmorColor(node.get("color").textValue());
-                }
+						StreamUtil.asStream(effects.fieldNames()).forEach(entry -> {
+							final String[] split = effects.get(entry).textValue().split("-");
+							final int duration = Integer.parseInt(split[0]);
+							final int amplifier = Integer.parseInt(split[1]);
+							final PotionEffectType effectType = PotionEffectType.getByName(entry);
 
-                if (node.has("effects")) {
-                    final JsonNode effects = node.get("effects");
-                    builder.editMeta(meta -> {
-                        final PotionMeta potionMeta = (PotionMeta) meta;
+							if (effectType == null) {
+								return;
+							}
 
-                        StreamUtil.asStream(effects.fieldNames()).forEach(entry -> {
-                            final String[] split = effects.get(entry).textValue().split("-");
-                            final int duration = Integer.parseInt(split[0]);
-                            final int amplifier = Integer.parseInt(split[1]);
-                            final PotionEffectType effectType = PotionEffectType.getByName(entry);
+							potionMeta.addCustomEffect(new PotionEffect(effectType, duration, amplifier), true);
+						});
+					});
+				}
 
-                            if (effectType == null) {
-                                return;
-                            }
+				if (node.has("itemData") && !CompatUtil.isPre1_9()) {
+					final List<String> args = Arrays.asList(node.get("itemData").textValue().split("-"));
+					final PotionType potionType = EnumUtil.getByName(args.get(0), PotionType.class);
 
-                            potionMeta.addCustomEffect(new PotionEffect(effectType, duration, amplifier), true);
-                        });
-                    });
-                }
+					if (potionType != null) {
+						builder.potion(potionType, args.contains("extended"), args.contains("strong"));
+					}
+				}
 
-                if (node.has("itemData") && !CompatUtil.isPre1_9()) {
-                    final List<String> args = Arrays.asList(node.get("itemData").textValue().split("-"));
-                    final PotionType potionType = EnumUtil.getByName(args.get(0), PotionType.class);
+				if (node.has("attributeModifiers") && CompatUtil.hasAttributes()) {
+					final JsonNode attributes = node.get("attributeModifiers");
+					StreamUtil.asStream(attributes).forEach(attributeNode -> builder.attribute(
+							attributeNode.get("name").textValue(),
+							attributeNode.get("operation").intValue(),
+							attributeNode.get("amount").doubleValue(),
+							attributeNode.has("slot") ? attributeNode.get("slot").textValue() : null
+							));
+				}
 
-                    if (potionType != null) {
-                        builder.potion(potionType, args.contains("extended"), args.contains("strong"));
-                    }
-                }
+				return new ItemData(builder.build());
+			}
 
-                if (node.has("attributeModifiers") && CompatUtil.hasAttributes()) {
-                    final JsonNode attributes = node.get("attributeModifiers");
-                    StreamUtil.asStream(attributes).forEach(attributeNode -> builder.attribute(
-                        attributeNode.get("name").textValue(),
-                        attributeNode.get("operation").intValue(),
-                        attributeNode.get("amount").doubleValue(),
-                        attributeNode.has("slot") ? attributeNode.get("slot").textValue() : null
-                    ));
-                }
+			return data;
+		}
+	}
 
-                return new ItemData(builder.build());
-            }
-
-            return data;
-        }
-    }
 }

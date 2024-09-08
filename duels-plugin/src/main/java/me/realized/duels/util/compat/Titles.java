@@ -48,7 +48,8 @@ public final class Titles {
 
     private Titles() {}
 
-    public static void send(final Player player, final String title, final String subtitle, final int fadeIn, final int stay, final int fadeOut) {
+    @SuppressWarnings("deprecation")
+	public static void send(final Player player, final String title, final String subtitle, final int fadeIn, final int stay, final int fadeOut) {
         if (CompatUtil.hasSendTitle()) {
             player.sendTitle(StringUtil.color(title), subtitle != null ? StringUtil.color(subtitle) : null, fadeIn, stay, fadeOut);
         } else {
